@@ -1,5 +1,3 @@
 接下来的任务：
-1.结合各种常见的bert问题，再从source code角度分析，并做好笔记；
-2.其他task check；
-3.check pretrained task，whether include cls.
-4.other models.
+1.其他任务check，主要是序列标注任务，完形填空任务等；
+2.pre-train；

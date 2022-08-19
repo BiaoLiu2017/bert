@@ -308,7 +308,7 @@ input_width = input_shape[2]#1*embedding_size，等于hidden_size，即768
 2）两个子层  
 对于每一层都包含两个子层（Sublayer）：Multi-Head Attention层和Position-wise Feed-Forward Networks层。并且每个子层都有residual connection和LN。  
 可表示为LayerNorm(x + Sublayer(x))  
-layer_input = prev_output#[batch_size*seq_length, 1*embedding_size]，可用于残差连接
+layer_input = prev_output#[batch_size\*seq_length, 1*embedding_size]，可用于残差连接
 
 3）Multi-Head Attention层（子层1）  
 函数为attention_layer()
@@ -361,8 +361,8 @@ We suspect that for large values of dk, the dot products grow large in magnitude
 - 然后进行attention mask：
 即无需attend to [PAD]，所以需要将[PAD]位置的attention score减小。  
 先计算attention_mask，即：  
-attention_mask = create_attention_mask_from_input_mask(input_ids, input_mask)
-#[batch_size, seq_length, seq_length]，即最后一个维度存储的才是mask的值，包含0和1, [[1,1,1,...1,0,0,0]]*seq_length  
+attention_mask = create_attention_mask_from_input_mask(input_ids, input_mask)  
+[batch_size, seq_length, seq_length]，即最后一个维度存储的才是mask的值，包含0和1, [[1,1,1,...1,0,0,0]]*seq_length  
 ```text
 [[1,1,1,...1,0,0,0],
  [1,1,1,...1,0,0,0],
