@@ -1,3 +1,22 @@
+首先理解：
+2.FFN；
+然后理解：
+多头的好处是什么？
+然后bert整体的流程图
+
+
 接下来的任务：
-1.其他任务check，主要是序列标注任务，完形填空任务等；
+1.其他任务check，主要是序列标注任务，完形填空任务等；bert书；
 2.pre-train；
+再看一遍文章，并做笔记；
+whole word mask怎么样做的？相比之前的优势是什么？为什么？论文check；
+
+Using BERT to extract fixed feature vectors (like ELMo)，试一下基于特征的方法；
+
+问题：
+1. pre-training language representations
+2. bert之所以是双向的原因；
+3. bert相比原始transformer encoder的变化之处；
+swag具体是怎么做的。
+消融实验具体是怎么做的。
+

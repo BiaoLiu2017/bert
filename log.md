@@ -267,11 +267,10 @@ full_position_embeddings = tf.get_variable(
 由于实际上的seq_length一般比max_position_embeddings小，因此先进行slice，得到更细的表：    
 position_embeddings = tf.slice(full_position_embeddings, [0, 0], [seq_length, -1])#[seq_length, 1*embedding_size]  
 reshape并合并到之前的embeddings中（对于不同的seq，其对应的位置的position embedding是一样的，仅于位置相关）：  
-position_embeddings = tf.reshape(position_embeddings,
-                               position_broadcast_shape)#[1, seq_length, 1*embedding_size]
+position_embeddings = tf.reshape(position_embeddings, position_broadcast_shape)#[1, seq_length, 1*embedding_size]  
 output += position_embeddings#[batch_size, seq_length, 1*embedding_size]，由于position_embeddings与batch_size无关。只跟位置有关。
 
-3）LN和dropout
+3）LN和dropout  
 output = layer_norm_and_dropout(output, dropout_prob)  
 即：  
 先执行LN，对最后一个维度进行normalization，即embedding_size的维度  
@@ -280,7 +279,7 @@ output_tensor = layer_norm(input_tensor, name)
 output_tensor = dropout(output_tensor, dropout_prob)  
 
 后处理的返回值为：  
-return output#[batch_size, seq_length, 1*embedding_size]  
+return output#[batch_size, seq_length, 1*embedding_size]，即后处理最终的输出结果  
 
 ## 2.3 encoder
 encoder部分和transformer中的encoder结构几乎一样，函数为transformer_model()：    
@@ -308,6 +307,8 @@ input_width = input_shape[2]#1*embedding_size，等于hidden_size，即768
 2）两个子层  
 对于每一层都包含两个子层（Sublayer）：Multi-Head Attention层和Position-wise Feed-Forward Networks层。并且每个子层都有residual connection和LN。  
 可表示为LayerNorm(x + Sublayer(x))  
+input_tensor#为之前后处理的结果，即最后embedding的结果  
+prev_output = reshape_to_matrix(input_tensor)#nD to 2D，即[batch_size*seq_length, 1*embedding_size]  
 layer_input = prev_output#[batch_size\*seq_length, 1*embedding_size]，可用于残差连接
 
 3）Multi-Head Attention层（子层1）  
@@ -328,12 +329,13 @@ attention_head = attention_layer(#[batch_size*seq_length, 12*64]
 ```
 在attention_layer中进行了如下操作：  
 - 首先通过对layer_input进行不同的线性变换分别得到query_layer，key_layer, value_layer。  
+但是对于所有的query都是input与一样的矩阵进行点积进行线性变换得到的，key和value也是。  
 如：
 ```text
 query_layer = tf.layers.dense(#output为：[batch_size*seq_length, 12*64]
       from_tensor_2d,#[batch_size*seq_length, 1*embedding_size]
       num_attention_heads * size_per_head,#12*64
-      activation=query_act,#即无激活函数，为线性变换
+      activation=query_act,#query_act为None，即无激活函数，为线性变换
       name="query",
       kernel_initializer=create_initializer(initializer_range))
 ```
