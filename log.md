@@ -1,20 +1,20 @@
 # Flows
-##1. download & env & model  
+## 1. download & env & model  
 git clone git@github.com:google-research/bert.git  
 pip install tensorflow-gpu==1.15.0  
 download models(links in bert github page)  
 注：numpy最好是1.19.5版本，版本过高可能导致报错；  
 
-##2. download fine-tuning data  
+## 2. download fine-tuning data  
 bert-large need too large GPU RAM to reproduce paper。
 so fine-tuning bert-base.
 download glue data(execute the blow code)(有的网络可能受限导致无法下载，在本地windows下下载glue data的):
 https://gist.github.com/vlasenkoalexey/fef1601580f269eca73bf26a198595f3
 
-##3. fine-tuning  
+## 3. fine-tuning  
 按照readme中的fine-tuning代码就能正常的fine-tuning了（注意修改bert路径以及glue_data路径）。
 
-##4. bert文本预处理  
+## 4. bert文本预处理  
 - 类：tokenization.FullTokenizer；  
 主要由basic_tokenizer和wordpiece_tokenizer两个类组成；  
 - basic_tokenizer用于分词，步骤为：  
@@ -37,7 +37,7 @@ or (cp >= 123 and cp <= 126))或cat = unicodedata.category(char)，cat.startswit
 剩余词为yant，为了告知model剩余的yant不是一个token的开头，因此加上##，即剩余词为##yant；
 同样先看##yant是否在vocab，以此类推，最终bryant通过WPT分词，最终变为了[br, ##yan, ##t]
 
-##5. 生成InputExample
+## 5. 生成InputExample
 主要函数convert_single_example，包括以下步骤：
 对两个文本利用tokenizer进行预处理和分词得到tokens_a和tokens_b，若长度超过max_seq_length-3，则每次去掉较长的最后一个token，直到满足条件；
 然后得到
@@ -63,7 +63,7 @@ or (cp >= 123 and cp <= 126))或cat = unicodedata.category(char)，cat.startswit
 #  label_ids： label_map[label_ids]为其类别标签；
 ```
 
-##6.写入tfrecord
+## 6.写入tfrecord
 Convert a set of `InputExample`s to a TFRecord file.即将样本写入tfrecord文件。  
 实现函数为：
 file_based_convert_examples_to_features(train_examples, label_list, FLAGS.max_seq_length, tokenizer, train_file)
@@ -90,7 +90,7 @@ features["is_real_example"] = create_int_feature(
 tf_example = tf.train.Example(features=tf.train.Features(feature=features))
 writer.write(tf_example.SerializeToString())
 ```
-##7. Train  
+## 7. Train  
 - 1)构建TPUEstimator
 ```text
 estimator = tf.contrib.tpu.TPUEstimator(
