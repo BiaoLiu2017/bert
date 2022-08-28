@@ -1,14 +1,15 @@
-首先理解：
-2.FFN；
-然后理解：
-多头的好处是什么？
-然后bert整体的流程图
-
-
+1.首先理解：FFN；（OK）
+2.然后理解：
+多头的好处是什么？（20min）(OK)
+3.然后bert整体的流程图（30min）(OK)
+------------------------------
 接下来的任务：
-1.其他任务check，主要是序列标注任务，完形填空任务等；bert书；
+1.其他任务check(问答任务SQuAD V1.1；序列标注任务CoNLL-2003 NER)；
 2.pre-train；
-再看一遍文章，并做笔记；
+bert书；
+两种注意力机制add和dot;
+
+
 whole word mask怎么样做的？相比之前的优势是什么？为什么？论文check；
 
 Using BERT to extract fixed feature vectors (like ELMo)，试一下基于特征的方法；
@@ -20,3 +21,4 @@ Using BERT to extract fixed feature vectors (like ELMo)，试一下基于特征�
 swag具体是怎么做的。
 消融实验具体是怎么做的。
 
+其他面试常问的问题；

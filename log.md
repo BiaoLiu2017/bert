@@ -482,3 +482,46 @@ self.pooled_output = tf.layers.dense(#[batch_size, 768]
   def get_embedding_table(self):
     return self.embedding_table#[vocab_size, embedding_size]
 ``` 
+
+# 问答任务
+## SQuAD 1.1
+几乎没有对模型架构做出太大的调整，或者做数据增强；但是需要较为复杂的数据预处理和后处理，来解决(a)SQuAD文本长度可变性；(b)符号水平的回答注释，用于训练；
+- 下载数据集到$BERT_BASE_DIR目录（SQuAD1.1）  
+*   [train-v1.1.json](https://rajpurkar.github.io/SQuAD-explorer/dataset/train-v1.1.json)
+*   [dev-v1.1.json](https://rajpurkar.github.io/SQuAD-explorer/dataset/dev-v1.1.json)
+*   [evaluate-v1.1.py](https://github.com/allenai/bi-att-flow/blob/master/squad/evaluate-v1.1.py)
+
+```shell
+python run_squad.py \
+  --vocab_file=$BERT_BASE_DIR/vocab.txt \
+  --bert_config_file=$BERT_BASE_DIR/bert_config.json \
+  --init_checkpoint=$BERT_BASE_DIR/bert_model.ckpt \
+  --do_train=True \
+  --train_file=$SQUAD_DIR/train-v1.1.json \
+  --do_predict=True \
+  --predict_file=$SQUAD_DIR/dev-v1.1.json \
+  --train_batch_size=12 \
+  --learning_rate=3e-5 \
+  --num_train_epochs=2.0 \
+  --max_seq_length=384 \
+  --doc_stride=128 \
+  --output_dir=/tmp/squad_base/
+```
+
+The dev set predictions will be saved into a file called `predictions.json`；
+
+Evaluate：  
+```shell
+python $SQUAD_DIR/evaluate-v1.1.py $SQUAD_DIR/dev-v1.1.json ./squad/predictions.json
+```
+{"f1": 88.41249612335034, "exact_match": 81.2488174077578}
+You should see a result similar to the 88.5% reported in the paper for`BERT-Base`.
+实际结果为：
+{"exact_match": 80.63386944181646, "f1": 88.1236694661201}
+
+
+另外先在TriviaQA上面微调，效果会更好：  
+If you fine-tune for one epoch on
+[TriviaQA](http://nlp.cs.washington.edu/triviaqa/) before this the results will
+be even better, but you will need to convert TriviaQA into the SQuAD json
+format.
