@@ -180,7 +180,7 @@ def create_training_instances(input_files, tokenizer, max_seq_length,
                               dupe_factor, short_seq_prob, masked_lm_prob,
                               max_predictions_per_seq, rng):
   """Create `TrainingInstance`s from raw text."""
-  all_documents = [[]]
+  all_documents = [[]]#[[[w1,w2,...], [w1,w2,...]], ...]
 
   # Input file format:
   # (1) One sentence per line. These should ideally be actual sentences, not
@@ -204,12 +204,12 @@ def create_training_instances(input_files, tokenizer, max_seq_length,
           all_documents[-1].append(tokens)
 
   # Remove empty documents
-  all_documents = [x for x in all_documents if x]
+  all_documents = [x for x in all_documents if x]#[[[w1,w2,...], [w1,w2,...]], ...]
   rng.shuffle(all_documents)
 
   vocab_words = list(tokenizer.vocab.keys())
   instances = []
-  for _ in range(dupe_factor):
+  for _ in range(dupe_factor):#5，即repeat 5次
     for document_index in range(len(all_documents)):
       instances.extend(
           create_instances_from_document(
@@ -224,10 +224,10 @@ def create_instances_from_document(
     all_documents, document_index, max_seq_length, short_seq_prob,
     masked_lm_prob, max_predictions_per_seq, vocab_words, rng):
   """Creates `TrainingInstance`s for a single document."""
-  document = all_documents[document_index]
+  document = all_documents[document_index]#[[w1,w2,...], [w1,w2,...]]
 
   # Account for [CLS], [SEP], [SEP]
-  max_num_tokens = max_seq_length - 3
+  max_num_tokens = max_seq_length - 3#125
 
   # We *usually* want to fill up the entire sequence since we are padding
   # to `max_seq_length` anyways, so short sequences are generally wasted
@@ -249,9 +249,9 @@ def create_instances_from_document(
   current_chunk = []
   current_length = 0
   i = 0
-  while i < len(document):
-    segment = document[i]
-    current_chunk.append(segment)
+  while i < len(document):#[[w1,w2,...], [w1,w2,...]]
+    segment = document[i]#[w1,w2,...]
+    current_chunk.append(segment)#[[w1,w2,...],...]
     current_length += len(segment)
     if i == len(document) - 1 or current_length >= target_seq_length:
       if current_chunk:
@@ -276,13 +276,13 @@ def create_instances_from_document(
           # corpora. However, just to be careful, we try to make sure that
           # the random document is not the same as the document
           # we're processing.
-          for _ in range(10):
+          for _ in range(10):#即NSP为False，从所有文档随机取一个文档；
             random_document_index = rng.randint(0, len(all_documents) - 1)
             if random_document_index != document_index:
               break
 
           random_document = all_documents[random_document_index]
-          random_start = rng.randint(0, len(random_document) - 1)
+          random_start = rng.randint(0, len(random_document) - 1)#随机取起始点
           for j in range(random_start, len(random_document)):
             tokens_b.extend(random_document[j])
             if len(tokens_b) >= target_b_length:

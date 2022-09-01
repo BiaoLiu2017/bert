@@ -801,10 +801,10 @@ def main(_):
   tf.logging.set_verbosity(tf.logging.INFO)
 
   processors = {
-      "cola": ColaProcessor,
-      "mnli": MnliProcessor,
-      "mrpc": MrpcProcessor,
-      "xnli": XnliProcessor,
+      "cola": ColaProcessor,#二分类，语言（主要是语法）是否可接受
+      "mnli": MnliProcessor,#三分类，自然语言推断任务，中立，蕴含，矛盾
+      "mrpc": MrpcProcessor,#二分类，相似性和释义任务，两句话语义是否等价
+      "xnli": XnliProcessor,#mnli任务的多语言版本，还是三分类，中立，蕴含和矛盾，但是数据集为多语言的。
   }
 
   tokenization.validate_case_matches_checkpoint(FLAGS.do_lower_case,#参数检查，如果异常会报错

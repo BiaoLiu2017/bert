@@ -191,7 +191,7 @@ def model_fn_builder(bert_config, init_checkpoint, layer_indexes, use_tpu,
       tf.logging.info("  name = %s, shape = %s%s", var.name, var.shape,
                       init_string)
 
-    all_layers = model.get_all_encoder_layers()
+    all_layers = model.get_all_encoder_layers()#self.all_encoder_layers#[[batch_size, seq_length, 768],...]
 
     predictions = {
         "unique_id": unique_ids,
@@ -211,7 +211,7 @@ def convert_examples_to_features(examples, seq_length, tokenizer):
   """Loads a data file into a list of `InputBatch`s."""
 
   features = []
-  for (ex_index, example) in enumerate(examples):
+  for (ex_index, example) in enumerate(examples):#[InputExample(unique_id=unique_id, text_a=text_a, text_b=text_b)),...]
     tokens_a = tokenizer.tokenize(example.text_a)
 
     tokens_b = None
@@ -222,7 +222,7 @@ def convert_examples_to_features(examples, seq_length, tokenizer):
       # Modifies `tokens_a` and `tokens_b` in place so that the total
       # length is less than the specified length.
       # Account for [CLS], [SEP], [SEP] with "- 3"
-      _truncate_seq_pair(tokens_a, tokens_b, seq_length - 3)
+      _truncate_seq_pair(tokens_a, tokens_b, seq_length - 3)#每次截断较长文本，直到满足长度
     else:
       # Account for [CLS] and [SEP] with "- 2"
       if len(tokens_a) > seq_length - 2:
@@ -343,7 +343,7 @@ def read_examples(input_file):
 def main(_):
   tf.logging.set_verbosity(tf.logging.INFO)
 
-  layer_indexes = [int(x) for x in FLAGS.layers.split(",")]
+  layer_indexes = [int(x) for x in FLAGS.layers.split(",")]#[-1,-2,-3,-4]
 
   bert_config = modeling.BertConfig.from_json_file(FLAGS.bert_config_file)
 
@@ -357,10 +357,23 @@ def main(_):
           num_shards=FLAGS.num_tpu_cores,
           per_host_input_for_training=is_per_host))
 
-  examples = read_examples(FLAGS.input_file)
+  examples = read_examples(FLAGS.input_file)#[InputExample(unique_id=unique_id, text_a=text_a, text_b=text_b)),...]
 
   features = convert_examples_to_features(
       examples=examples, seq_length=FLAGS.max_seq_length, tokenizer=tokenizer)
+  '''
+  features:[InputFeatures(
+            unique_id=example.unique_id,
+            tokens=tokens,
+            input_ids=input_ids,
+            input_mask=input_mask,
+            input_type_ids=input_type_ids)), ...]
+  BERT的传统：
+  tokens: [CLS] who was jim henson ? [SEP] jim henson was a puppet ##eer [SEP]
+  input_ids: 101 2040 2001 3958 27227 1029 102 3958 27227 2001 1037 13997 11510 102 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+  input_mask: 1 1 1 1 1 1 1 1 1 1 1 1 1 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+  input_type_ids: 0 0 0 0 0 0 0 1 1 1 1 1 1 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+  '''
 
   unique_id_to_feature = {}
   for feature in features:
@@ -391,17 +404,17 @@ def main(_):
       feature = unique_id_to_feature[unique_id]
       output_json = collections.OrderedDict()
       output_json["linex_index"] = unique_id
-      all_features = []
-      for (i, token) in enumerate(feature.tokens):
+      all_features = []#得到所有token的对应的所有hidden layer的vec
+      for (i, token) in enumerate(feature.tokens):#[[CLS] who was jim henson ? [SEP] jim henson was a puppet ##eer [SEP]]
         all_layers = []
         for (j, layer_index) in enumerate(layer_indexes):
-          layer_output = result["layer_output_%d" % j]
+          layer_output = result["layer_output_%d" % j]#[S, E]
           layers = collections.OrderedDict()
           layers["index"] = layer_index
-          layers["values"] = [
+          layers["values"] = [#[E, ]，得到该token的对应hidden layer的vec
               round(float(x), 6) for x in layer_output[i:(i + 1)].flat
           ]
-          all_layers.append(layers)
+          all_layers.append(layers)#[4, E]，得到该token的所有hidden layer的vec
         features = collections.OrderedDict()
         features["token"] = token
         features["layers"] = all_layers

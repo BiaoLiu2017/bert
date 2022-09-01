@@ -175,7 +175,22 @@ per_example_loss = -tf.reduce_sum(one_hot_labels * log_probs, axis=-1)#[batch_si
 平均batch的loss：    
 loss = tf.reduce_mean(per_example_loss)#[1,]    
 因此最终返回的结果为：  
-loss, per_example_loss, logits, probabilities #[1,] [batch_size, 1]  [batch_size, 2]  [batch_size, 2]
+loss, per_example_loss, logits, probabilities #[1,] [batch_size, 1]  [batch_size, 2]  [batch_size, 2]  
+- BertForSequenceClassification
+对于序列分类任务，对应pytorch_transformers的BertForSequenceClassification类，源码为：  
+```text
+outputs = self.bert(input_ids, position_ids=position_ids, token_type_ids=token_type_ids,
+                            attention_mask=attention_mask, head_mask=head_mask)
+pooled_output = outputs[1]#即[CLS]对应最后一层的hidden vec，经过一个全连接层，激活函数为Tanh。
+pooled_output = self.dropout(pooled_output)
+logits = self.classifier(pooled_output)#线性变换
+```
+```text
+pooled_output来源：
+first_token_tensor = hidden_states[:, 0]
+pooled_output = self.dense(first_token_tensor)
+pooled_output = self.activation(pooled_output)
+```
 
 ## 2.Bert模型
 ```text
@@ -485,7 +500,8 @@ self.pooled_output = tf.layers.dense(#[batch_size, 768]
 
 # 问答任务
 ## SQuAD 1.1
-几乎没有对模型架构做出太大的调整，或者做数据增强；但是需要较为复杂的数据预处理和后处理，来解决(a)SQuAD文本长度可变性；(b)符号水平的回答注释，用于训练；
+几乎没有对模型架构做出太大的调整，或者做数据增强；但是需要较为复杂的数据预处理和后处理，来解决(a)SQuAD文本长度可变性
+（即通过切分passage）；(b)符号水平的回答注释，用于训练；
 - 下载数据集到$BERT_BASE_DIR目录（SQuAD1.1）  
 *   [train-v1.1.json](https://rajpurkar.github.io/SQuAD-explorer/dataset/train-v1.1.json)
 *   [dev-v1.1.json](https://rajpurkar.github.io/SQuAD-explorer/dataset/dev-v1.1.json)
@@ -514,9 +530,9 @@ Evaluate：
 ```shell
 python $SQUAD_DIR/evaluate-v1.1.py $SQUAD_DIR/dev-v1.1.json ./squad/predictions.json
 ```
-{"f1": 88.41249612335034, "exact_match": 81.2488174077578}
-You should see a result similar to the 88.5% reported in the paper for`BERT-Base`.
-实际结果为：
+{"f1": 88.41249612335034, "exact_match": 81.2488174077578}  
+You should see a result similar to the 88.5% reported in the paper for`BERT-Base`.  
+实际结果为：  
 {"exact_match": 80.63386944181646, "f1": 88.1236694661201}
 
 
@@ -525,3 +541,322 @@ If you fine-tune for one epoch on
 [TriviaQA](http://nlp.cs.washington.edu/triviaqa/) before this the results will
 be even better, but you will need to convert TriviaQA into the SQuAD json
 format.
+## SQuAD 2.0
+相比SQuAD 1.1，The SQuAD 2.0任务进行了拓展，增加了无答案的情况，更加贴近现实。  
+
+# Using BERT to extract fixed feature vectors (like ELMo)
+In certain cases, rather than fine-tuning the entire pre-trained model
+end-to-end, it can be beneficial to obtained *pre-trained contextual
+embeddings*, which are fixed contextual representations of each input token
+generated from the hidden layers of the pre-trained model. This should also
+mitigate most of the out-of-memory issues.
+
+As an example, we include the script `extract_features.py` which can be used
+like this:
+
+```shell
+# Sentence A and Sentence B are separated by the ||| delimiter for sentence
+# pair tasks like question answering and entailment.
+# For single sentence inputs, put one sentence per line and DON'T use the
+# delimiter.
+echo 'Who was Jim Henson ? ||| Jim Henson was a puppeteer' > input.txt
+export BERT_BASE_DIR=/data/liubiao/PTMs/bert/models/uncased_L-12_H-768_A-12
+python extract_features.py \
+  --input_file=input.txt \
+  --output_file=output.jsonl \
+  --vocab_file=$BERT_BASE_DIR/vocab.txt \
+  --bert_config_file=$BERT_BASE_DIR/bert_config.json \
+  --init_checkpoint=$BERT_BASE_DIR/bert_model.ckpt \
+  --layers=-1,-2,-3,-4 \
+  --max_seq_length=128 \
+  --batch_size=8
+```
+
+This will create a JSON file (one line per line of input) containing the BERT
+activations from each Transformer layer specified by `layers` (-1 is the final
+hidden layer of the Transformer, etc.)  
+即提取一句话的每个token对应的最后几层（FFN之后Add&Norm的vec）对应位置的vec。比如第一个token，提取的是最后1-4层，对应位置1的vec。  
+
+# Tokenization
+The basic procedure for sentence-level tasks is:（例子`run_classifier.py` and `extract_features.py`）  
+1.  Instantiate an instance of `tokenizer = tokenization.FullTokenizer`
+2.  Tokenize the raw text with `tokens = tokenizer.tokenize(raw_text)`.
+3.  Truncate to the maximum sequence length. (You can use up to 512, but you
+    probably want to use shorter if possible for memory and speed reasons.)
+4.  Add the `[CLS]` and `[SEP]` tokens in the right place.
+
+Word-level and span-level tasks (e.g., SQuAD and NER) are more complex, since
+you need to maintain alignment between your input text and output text so that
+you can project your training labels. SQuAD is a particularly complex example
+because the input labels are *character*-based, and SQuAD paragraphs are often
+longer than our maximum sequence length. See the code in `run_squad.py` to show
+how we handle this.
+
+Before we describe the general recipe for handling word-level tasks, it's
+important to understand what exactly our tokenizer is doing. It has three main
+steps:
+
+1.  **Text normalization**: Convert all whitespace characters to spaces, and
+    (for the `Uncased` model) lowercase the input and strip out accent markers.
+    E.g., `John Johanson's, → john johanson's,`.
+
+2.  **Punctuation splitting**: Split *all* punctuation characters on both sides
+    (i.e., add whitespace around all punctuation characters). Punctuation
+    characters are defined as (a) Anything with a `P*` Unicode class, (b) any
+    non-letter/number/space ASCII character (e.g., characters like `$` which are
+    technically not punctuation). E.g., `john johanson's, → john johanson ' s ,`
+
+3.  **WordPiece tokenization**: Apply whitespace tokenization to the output of
+    the above procedure, and apply
+    [WordPiece](https://github.com/tensorflow/tensor2tensor/blob/master/tensor2tensor/data_generators/text_encoder.py)
+    tokenization to each token separately. (Our implementation is directly based
+    on the one from `tensor2tensor`, which is linked). E.g., `john johanson ' s
+    , → john johan ##son ' s ,`
+
+The advantage of this scheme is that it is "compatible" with most existing
+English tokenizers. For example, imagine that you have a part-of-speech tagging
+task which looks like this:
+
+```
+Input:  John Johanson 's   house
+Labels: NNP  NNP      POS NN
+```
+
+The tokenized output will look like this:
+
+```
+Tokens: john johan ##son ' s house
+```
+
+Crucially, this would be the same output as if the raw text were `John
+Johanson's house` (with no space before the `'s`).
+
+If you have a pre-tokenized representation with word-level annotations, you can
+simply tokenize each input word independently, and deterministically maintain an
+original-to-tokenized alignment:
+
+```python
+### Input
+orig_tokens = ["John", "Johanson", "'s",  "house"]
+labels      = ["NNP",  "NNP",      "POS", "NN"]
+
+### Output
+bert_tokens = []
+
+# Token map will be an int -> int mapping between the `orig_tokens` index and
+# the `bert_tokens` index.
+orig_to_tok_map = []
+
+tokenizer = tokenization.FullTokenizer(
+    vocab_file=vocab_file, do_lower_case=True)
+
+bert_tokens.append("[CLS]")
+for orig_token in orig_tokens:
+  orig_to_tok_map.append(len(bert_tokens))
+  bert_tokens.extend(tokenizer.tokenize(orig_token))
+bert_tokens.append("[SEP]")
+
+# bert_tokens == ["[CLS]", "john", "johan", "##son", "'", "s", "house", "[SEP]"]
+# orig_to_tok_map == [1, 2, 4, 6]
+```
+
+Now `orig_to_tok_map` can be used to project `labels` to the tokenized
+representation.
+
+There are common English tokenization schemes which will cause a slight mismatch
+between how BERT was pre-trained. For example, if your input tokenization splits
+off contractions like `do n't`, this will cause a mismatch. If it is possible to
+do so, you should pre-process your data to convert these back to raw-looking
+text, but if it's not possible, this mismatch is likely not a big deal.（即最好做单词还原，不然会有mismatch）
+
+# sequence tag task
+参见BERT-NER目录  
+主要的细节：  
+```text
+这里遵循bert一般的套路，即最后一层dropout，再线性变换，再softmax；
+model = modeling.BertModel()#bert模型
+output_layer = model.get_sequence_output()#提取encoder的最后一层，[B, S, E]， [64, 64, 768]
+output_layer = tf.keras.layers.Dropout(rate=0.1)(output_layer)#训练时dropout，[64,64,768]
+logits = hidden2tag(output_layer,num_labels)#即接一个全连接层，无激活函数；[64,64,10]
+logits = tf.reshape(logits,[-1,FLAGS.max_seq_length,num_labels])#reshape，[64,64,10]
+loss,predict  = softmax_layer(logits, labels, num_labels, mask)#[64, 64, 10], [64, 64]
+在计算loss的时候，需要去掉[PAD]处的loss；
+```
+需要注意的是原paper中提到：We use the representation of the first sub-token as the input to the token-level classifier over the NER label set。  
+也就是说多于包含多个sub-token的token，将第一个sub-token的向量作为分类器的输入，那么也就是说后面的sub-token应该是不参与loss计算的（推测）。  
+序列标注任务对应pytorch_transformers的BertForTokenClassification类，即token classification。该类源码为：
+```text
+self.classifier = nn.Linear(config.hidden_size, config.num_labels)
+outputs = self.bert(input_ids, position_ids=position_ids, token_type_ids=token_type_ids,
+                            attention_mask=attention_mask, head_mask=head_mask)
+sequence_output = outputs[0]# sequence_output, pooled_output, (hidden_states), (attentions)
+sequence_output = self.dropout(sequence_output)#即最后一层hidden layer，经过dropout
+logits = self.classifier(sequence_output)#线性变换
+```
+即与tf代码逻辑是完全一样的。  
+
+# Pre-training
+- 数据：  
+两个语料库：  
+the BooksCorpus (800M words)   
+English Wikipedia (2,500M words)：只提取了文章，忽略了 lists, tables, and headers；  
+数据下载（见bert github）  
+
+- 数据处理
+得到plain text file，one sentence per line。document之间由一个空行分隔。示例见sample_text.txt。  
+
+- 生成tfrecord
+```shell
+export BERT_BASE_DIR=/data/liubiao/PTMs/bert/pretrain_uncased_L-12_H-768_A-12
+python create_pretraining_data.py \
+  --input_file=./sample_text.txt \
+  --output_file=tf_examples.tfrecord \
+  --vocab_file=$BERT_BASE_DIR/vocab.txt \
+  --do_lower_case=True \
+  --max_seq_length=128 \
+  --max_predictions_per_seq=20 \
+  --masked_lm_prob=0.15 \
+  --random_seed=12345 \
+  --dupe_factor=5
+```
+得到的样本示例为：  
+```text
+INFO:tensorflow:tokens: [CLS] this text is included to make sure unicode is handled bracelet : 鍔� 鍔� [MASK] 鍖� 鍖� 岽� ##岽� ##岬� ##岬� ##唳� [MASK] ##唳� ##唳� ##唳� ##唳� [SEP] text should be one - [MASK] - per [MASK] line , wes [MASK] documents . [SEP]
+INFO:tensorflow:input_ids: 101 2023 3793 2003 2443 2000 2191 2469 27260 2003 8971 19688 1024 1778 1779 103 1781 1782 1493 30030 30031 30032 29893 103 29895 29896 29897 29898 102 3793 2323 2022 2028 1011 103 1011 2566 103 2240 1010 2007 4064 3210 103 5491 1012 102 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+INFO:tensorflow:input_mask: 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+INFO:tensorflow:segment_ids: 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+INFO:tensorflow:masked_lm_positions: 11 15 23 34 37 38 43 0 0 0 0 0 0 0 0 0 0 0 0 0
+INFO:tensorflow:masked_lm_ids: 7919 1780 29894 6251 1011 2240 2090 0 0 0 0 0 0 0 0 0 0 0 0 0
+INFO:tensorflow:masked_lm_weights: 1.0 1.0 1.0 1.0 1.0 1.0 1.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0
+INFO:tensorflow:next_sentence_labels: 0
+```
+原文为：  
+This text is included to make sure Unicode is handled properly: 力加勝北区ᴵᴺᵀᵃছজটডণত  
+Text should be one-sentence-per-line, with empty lines between documents.  
+即位置11的properly替换为bracelet；位置38的line还是line；  
+
+即：无论是替换为[MASK]、还是替换为随机词，还是没变的词，都需要预测为原token，计算loss。  
+对于NSP任务，NSP为True的情况下，sentence A是一个document连续的sentences连在一起得到的，而sentence B则是紧接在A后面的连续sentences连在一起的；
+NSP为False的情况，A还是如此，但B则变成了其他document中随机取的连续sentences连在一起得到的。阳性样本和阴性样本采样的概率是一样的，即0.5。  
+
+参数`max_predictions_per_seq` is the maximum number of masked LM predictions per
+sequence. You should set this to around `max_seq_length` * `masked_lm_prob` (the
+script doesn't do that automatically because the exact value needs to be passed
+to both scripts).
+
+pretrain：  
+```shell
+export BERT_BASE_DIR=/data/liubiao/PTMs/bert/pretrain_uncased_L-12_H-768_A-12
+python run_pretraining.py \
+  --input_file=tf_examples.tfrecord \
+  --output_dir=pretraining_output \
+  --do_train=True \
+  --do_eval=True \
+  --bert_config_file=$BERT_BASE_DIR/bert_config.json \
+  --train_batch_size=32 \
+  --max_seq_length=128 \
+  --max_predictions_per_seq=20 \
+  --num_train_steps=20 \
+  --num_warmup_steps=10 \
+  --learning_rate=2e-5
+```
+源码：
+```text
+(masked_lm_loss,
+     masked_lm_example_loss, masked_lm_log_probs) = get_masked_lm_output(
+         bert_config, model.get_sequence_output(), model.get_embedding_table(),
+         masked_lm_positions, masked_lm_ids, masked_lm_weights)
+
+    (next_sentence_loss, next_sentence_example_loss,
+     next_sentence_log_probs) = get_next_sentence_output(
+         bert_config, model.get_pooled_output(), next_sentence_labels)
+
+    total_loss = masked_lm_loss + next_sentence_loss
+```
+即loss为mlm和nsp两个loss的和。
+
+
+从头pretrain不要init_checkpoint参数，如果是多次pretrain，后续的训练则需要init_checkpoint参数。  
+pretrain结果（官方）：
+```
+***** Eval results *****
+  global_step = 20
+  loss = 0.0979674
+  masked_lm_accuracy = 0.985479
+  masked_lm_loss = 0.0979328
+  next_sentence_accuracy = 1.0
+  next_sentence_loss = 3.45724e-05
+```
+pretrain结果（实际）：
+```text
+INFO:tensorflow:***** Eval results *****
+I0830 16:06:01.350611 140338225133312 run_pretraining.py:483] ***** Eval results *****
+INFO:tensorflow:  global_step = 20
+I0830 16:06:01.350720 140338225133312 run_pretraining.py:485]   global_step = 20
+INFO:tensorflow:  loss = 9.251094
+I0830 16:06:01.350955 140338225133312 run_pretraining.py:485]   loss = 9.251094
+INFO:tensorflow:  masked_lm_accuracy = 0.06743769
+I0830 16:06:01.351062 140338225133312 run_pretraining.py:485]   masked_lm_accuracy = 0.06743769
+INFO:tensorflow:  masked_lm_loss = 8.5400095
+I0830 16:06:01.351148 140338225133312 run_pretraining.py:485]   masked_lm_loss = 8.5400095
+INFO:tensorflow:  next_sentence_accuracy = 0.53625
+I0830 16:06:01.351230 140338225133312 run_pretraining.py:485]   next_sentence_accuracy = 0.53625
+INFO:tensorflow:  next_sentence_loss = 0.7045548
+I0830 16:06:01.351311 140338225133312 run_pretraining.py:485]   next_sentence_loss = 0.7045548
+```
+
+## Pre-training tips and caveats
+*   **If using your own vocabulary, make sure to change `vocab_size` in
+    `bert_config.json`. If you use a larger vocabulary without changing this,
+    you will likely get NaNs when training on GPU or TPU due to unchecked
+    out-of-bounds access.**
+*   If your task has a large domain-specific corpus available (e.g., "movie
+    reviews" or "scientific papers"), it will likely be beneficial to run
+    additional steps of pre-training on your corpus, starting from the BERT
+    checkpoint.
+*   The learning rate we used in the paper was 1e-4. However, if you are doing
+    additional steps of pre-training starting from an existing BERT checkpoint,
+    you should use a smaller learning rate (e.g., 2e-5).
+*   Current BERT models are English-only, but we do plan to release a
+    multilingual model which has been pre-trained on a lot of languages in the
+    near future (hopefully by the end of November 2018).
+*   Longer sequences are disproportionately expensive because attention is
+    quadratic to the sequence length. In other words, a batch of 64 sequences of
+    length 512 is much more expensive than a batch of 256 sequences of
+    length 128. The fully-connected/convolutional cost is the same, but the
+    attention cost is far greater for the 512-length sequences. Therefore, one
+    good recipe is to pre-train for, say, 90,000 steps with a sequence length of
+    128 and then for 10,000 additional steps with a sequence length of 512. The
+    very long sequences are mostly needed to learn positional embeddings, which
+    can be learned fairly quickly. Note that this does require generating the
+    data twice with different values of `max_seq_length`.
+*   If you are pre-training from scratch, be prepared that pre-training is
+    computationally expensive, especially on GPUs. If you are pre-training from
+    scratch, our recommended recipe is to pre-train a `BERT-Base` on a single
+    [preemptible Cloud TPU v2](https://cloud.google.com/tpu/docs/pricing), which
+    takes about 2 weeks at a cost of about $500 USD (based on the pricing in
+    October 2018). You will have to scale down the batch size when only training
+    on a single Cloud TPU, compared to what was used in the paper. It is
+    recommended to use the largest batch size that fits into TPU memory.
+
+
+## Learning a new WordPiece vocabulary
+This repository does not include code for *learning* a new WordPiece vocabulary.
+The reason is that the code used in the paper was implemented in C++ with
+dependencies on Google's internal libraries. For English, it is almost always
+better to just start with our vocabulary and pre-trained models. For learning
+vocabularies of other languages, there are a number of open source options
+available. However, keep in mind that these are not compatible with our
+`tokenization.py` library:
+
+*   [Google's SentencePiece library](https://github.com/google/sentencepiece)
+
+*   [tensor2tensor's WordPiece generation script](https://github.com/tensorflow/tensor2tensor/blob/master/tensor2tensor/data_generators/text_encoder_build_subword.py)
+
+*   [Rico Sennrich's Byte Pair Encoding library](https://github.com/rsennrich/subword-nmt)
+
+
+# 其他注意事项
+1. For classification tasks, the first vector (corresponding to [CLS]) is
+used as as the "sentence vector". Note that this only makes sense because
+the entire model is fine-tuned.

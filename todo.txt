@@ -1,24 +1,14 @@
-1.首先理解：FFN；（OK）
-2.然后理解：
-多头的好处是什么？（20min）(OK)
-3.然后bert整体的流程图（30min）(OK)
-------------------------------
-接下来的任务：
-1.其他任务check(问答任务SQuAD V1.1；序列标注任务CoNLL-2003 NER)；
-2.pre-train；
-bert书；
-两种注意力机制add和dot;
-
-
-whole word mask怎么样做的？相比之前的优势是什么？为什么？论文check；
-
-Using BERT to extract fixed feature vectors (like ELMo)，试一下基于特征的方法；
-
-问题：
-1. pre-training language representations
-2. bert之所以是双向的原因；
+1. pre-training language representations；
 3. bert相比原始transformer encoder的变化之处；
-swag具体是怎么做的。
 消融实验具体是怎么做的。
+1.bert+crf，crf的作用，是否必要，为什么；搞懂crf；
+2.whole word mask怎么样做的？相比之前的优势是什么？为什么？论文check；
 
-其他面试常问的问题；
+
+bert book；
+两种注意力机制add和dot;
+swag具体是怎么做的。
+其他rw常问的问题；
+https://towardsdatascience.com/bert-explained-state-of-the-art-language-model-for-nlp-f8b21a9b6270
+https://jalammar.github.io/illustrated-transformer/
+https://amitness.com/2020/02/albert-visual-summary/

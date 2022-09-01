@@ -238,8 +238,8 @@ def read_squad_examples(input_file, is_training):
   for entry in input_data:
     for paragraph in entry["paragraphs"]:
       paragraph_text = paragraph["context"]
-      doc_tokens = []
-      char_to_word_offset = []
+      doc_tokens = []#放置所有的单词，以空格符分隔，如' 1 22 3333' -> ['1','22','3333']
+      char_to_word_offset = []#其相同元素在同一个单词/空格，[-1, 0, 0, 1, 1, 1, 2, 2, 2, 2]，可快速定位一个位置所在单词的index，再通过doc_tokens[index]来获取单词
       prev_is_whitespace = True
       for c in paragraph_text:
         if is_whitespace(c):
@@ -261,19 +261,19 @@ def read_squad_examples(input_file, is_training):
         is_impossible = False
         if is_training:
 
-          if FLAGS.version_2_with_negative:
+          if FLAGS.version_2_with_negative:#如果为True，则包含无答案的样本，此处为False
             is_impossible = qa["is_impossible"]
-          if (len(qa["answers"]) != 1) and (not is_impossible):
+          if (len(qa["answers"]) != 1) and (not is_impossible):#训练数据中answers只有一个
             raise ValueError(
                 "For training, each question should have exactly 1 answer.")
           if not is_impossible:
             answer = qa["answers"][0]
             orig_answer_text = answer["text"]
-            answer_offset = answer["answer_start"]
+            answer_offset = answer["answer_start"]#start index
             answer_length = len(orig_answer_text)
-            start_position = char_to_word_offset[answer_offset]
+            start_position = char_to_word_offset[answer_offset]#起始位置对应单词所在index
             end_position = char_to_word_offset[answer_offset + answer_length -
-                                               1]
+                                               1]#终止位置对应单词所在index
             # Only add answers where the text can be exactly recovered from the
             # document. If this CAN'T happen it's likely due to weird Unicode
             # stuff so we will just skip the example.
@@ -281,14 +281,14 @@ def read_squad_examples(input_file, is_training):
             # Note that this means for training mode, every example is NOT
             # guaranteed to be preserved.
             actual_text = " ".join(
-                doc_tokens[start_position:(end_position + 1)])
+                doc_tokens[start_position:(end_position + 1)])#捕获起始index到终止index对应的实际文本
             cleaned_answer_text = " ".join(
-                tokenization.whitespace_tokenize(orig_answer_text))
-            if actual_text.find(cleaned_answer_text) == -1:
+                tokenization.whitespace_tokenize(orig_answer_text))#去除多余的空格
+            if actual_text.find(cleaned_answer_text) == -1:#即实际文本和answer不一致，去掉这类样本；对于无answer的样本，同样会直接去掉；
               tf.logging.warning("Could not find answer: '%s' vs. '%s'",
                                  actual_text, cleaned_answer_text)
               continue
-          else:
+          else:#版本2，无回答的样本情况
             start_position = -1
             end_position = -1
             orig_answer_text = ""
@@ -319,9 +319,9 @@ def convert_examples_to_features(examples, tokenizer, max_seq_length,
     if len(query_tokens) > max_query_length:
       query_tokens = query_tokens[0:max_query_length]
 
-    tok_to_orig_index = []
-    orig_to_tok_index = []
-    all_doc_tokens = []
+    tok_to_orig_index = []#将子词回对到原list的index
+    orig_to_tok_index = []#累计子词个数,[0,1,3,4,6,...]
+    all_doc_tokens = []#子词list
     for (i, token) in enumerate(example.doc_tokens):
       orig_to_tok_index.append(len(all_doc_tokens))
       sub_tokens = tokenizer.tokenize(token)
@@ -335,12 +335,12 @@ def convert_examples_to_features(examples, tokenizer, max_seq_length,
       tok_start_position = -1
       tok_end_position = -1
     if is_training and not example.is_impossible:
-      tok_start_position = orig_to_tok_index[example.start_position]
+      tok_start_position = orig_to_tok_index[example.start_position]#新的起始位置，即对应子词list的起始位置
       if example.end_position < len(example.doc_tokens) - 1:
-        tok_end_position = orig_to_tok_index[example.end_position + 1] - 1
+        tok_end_position = orig_to_tok_index[example.end_position + 1] - 1#新的终止位置
       else:
         tok_end_position = len(all_doc_tokens) - 1
-      (tok_start_position, tok_end_position) = _improve_answer_span(
+      (tok_start_position, tok_end_position) = _improve_answer_span(#处理罕见的情况，将回答更精确化
           all_doc_tokens, tok_start_position, tok_end_position, tokenizer,
           example.orig_answer_text)
 
@@ -358,7 +358,7 @@ def convert_examples_to_features(examples, tokenizer, max_seq_length,
       length = len(all_doc_tokens) - start_offset
       if length > max_tokens_for_doc:
         length = max_tokens_for_doc
-      doc_spans.append(_DocSpan(start=start_offset, length=length))
+      doc_spans.append(_DocSpan(start=start_offset, length=length))#对于过长的原文，分成几段来存储
       if start_offset + length == len(all_doc_tokens):
         break
       start_offset += min(length, doc_stride)
@@ -409,6 +409,7 @@ def convert_examples_to_features(examples, tokenizer, max_seq_length,
       if is_training and not example.is_impossible:
         # For training, if our document chunk does not contain an annotation
         # we throw it out, since there is nothing to predict.
+        # 如果文章较长，就会被切分，对于切分后的文本，最多只有一个文本包含有完整的answer，没有包含完整answer的样本其start_position和end_position置为0.
         doc_start = doc_span.start
         doc_end = doc_span.start + doc_span.length - 1
         out_of_span = False
@@ -558,33 +559,33 @@ def create_model(bert_config, is_training, input_ids, input_mask, segment_ids,
       token_type_ids=segment_ids,
       use_one_hot_embeddings=use_one_hot_embeddings)
 
-  final_hidden = model.get_sequence_output()
+  final_hidden = model.get_sequence_output()#最后一层的hidden
 
-  final_hidden_shape = modeling.get_shape_list(final_hidden, expected_rank=3)
+  final_hidden_shape = modeling.get_shape_list(final_hidden, expected_rank=3)#[B, S, E], [32, 768, 512]
   batch_size = final_hidden_shape[0]
   seq_length = final_hidden_shape[1]
   hidden_size = final_hidden_shape[2]
 
-  output_weights = tf.get_variable(
+  output_weights = tf.get_variable(#即start和end的weight
       "cls/squad/output_weights", [2, hidden_size],
       initializer=tf.truncated_normal_initializer(stddev=0.02))
 
   output_bias = tf.get_variable(
       "cls/squad/output_bias", [2], initializer=tf.zeros_initializer())
 
-  final_hidden_matrix = tf.reshape(final_hidden,
+  final_hidden_matrix = tf.reshape(final_hidden,#[B*S, E]
                                    [batch_size * seq_length, hidden_size])
-  logits = tf.matmul(final_hidden_matrix, output_weights, transpose_b=True)
+  logits = tf.matmul(final_hidden_matrix, output_weights, transpose_b=True)#[B*S, 2]，即start和end的logits
   logits = tf.nn.bias_add(logits, output_bias)
 
-  logits = tf.reshape(logits, [batch_size, seq_length, 2])
-  logits = tf.transpose(logits, [2, 0, 1])
+  logits = tf.reshape(logits, [batch_size, seq_length, 2])#[B, S, 2]
+  logits = tf.transpose(logits, [2, 0, 1])#[2, B, S]
 
-  unstacked_logits = tf.unstack(logits, axis=0)
+  unstacked_logits = tf.unstack(logits, axis=0)#按行unstack，即[[B, S], [B, S]]
 
   (start_logits, end_logits) = (unstacked_logits[0], unstacked_logits[1])
 
-  return (start_logits, end_logits)
+  return (start_logits, end_logits)#[B, S], [B, S]
 
 
 def model_fn_builder(bert_config, init_checkpoint, learning_rate,
@@ -606,7 +607,7 @@ def model_fn_builder(bert_config, init_checkpoint, learning_rate,
 
     is_training = (mode == tf.estimator.ModeKeys.TRAIN)
 
-    (start_logits, end_logits) = create_model(
+    (start_logits, end_logits) = create_model(#[B, S], [B, S]
         bert_config=bert_config,
         is_training=is_training,
         input_ids=input_ids,
@@ -644,10 +645,10 @@ def model_fn_builder(bert_config, init_checkpoint, learning_rate,
       seq_length = modeling.get_shape_list(input_ids)[1]
 
       def compute_loss(logits, positions):
-        one_hot_positions = tf.one_hot(
+        one_hot_positions = tf.one_hot(#[S,]，即[0,0,0,1,0,0,...]
             positions, depth=seq_length, dtype=tf.float32)
-        log_probs = tf.nn.log_softmax(logits, axis=-1)
-        loss = -tf.reduce_mean(
+        log_probs = tf.nn.log_softmax(logits, axis=-1)#即先softmax，再分别取log。[B, S]，[[logp1,logp2,....]...]
+        loss = -tf.reduce_mean(#即先计算每个样本的loss（-logp），再平均所有样本
             tf.reduce_sum(one_hot_positions * log_probs, axis=-1))
         return loss
 
@@ -1155,6 +1156,16 @@ def main(_):
   num_train_steps = None
   num_warmup_steps = None
   if FLAGS.do_train:
+    '''
+    example = SquadExample(
+            qas_id=qas_id,
+            question_text=question_text,
+            doc_tokens=doc_tokens,
+            orig_answer_text=orig_answer_text,
+            start_position=start_position,
+            end_position=end_position,
+            is_impossible=is_impossible)
+    '''
     train_examples = read_squad_examples(
         input_file=FLAGS.train_file, is_training=True)
     num_train_steps = int(
