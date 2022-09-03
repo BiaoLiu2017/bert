@@ -860,3 +860,36 @@ available. However, keep in mind that these are not compatible with our
 1. For classification tasks, the first vector (corresponding to [CLS]) is
 used as as the "sentence vector". Note that this only makes sense because
 the entire model is fine-tuned.
+2. Whole Word Masking Models
+2019年BERT增加了BERT-WWM模型，本质上是mask的时候，之前的随机mask sub-word，但是现在一个word如果被分成了几个sub-word，那么要么都不mask，要么都mask。
+因为之前的情况下，只有部分sub-word被mask的情况下，很容易预测出被mask的sub-word，现在都mask了，难度会提升，也会更多的依赖上下文。
+即pre-processing部分进行了修改。原始的方案是randomly select WordPiece tokens to mask. For example:
+
+`Input Text: the man jumped up , put his basket on phil ##am ##mon ' s head`
+`Original Masked Input: [MASK] man [MASK] up , put his [MASK] on phil
+[MASK] ##mon ' s head`
+
+The new technique is called Whole Word Masking. In this case, we always mask
+*all* of the the tokens corresponding to a word at once. The overall masking
+rate remains the same.
+
+`Whole Word Masked Input: the man [MASK] up , put his basket on [MASK] [MASK]
+[MASK] ' s head`
+
+训练不变，还是预测each masked WordPiece token independently，
+This can be enabled during data generation by passing the flag
+`--do_whole_word_mask=True` to `create_pretraining_data.py`.
+WWM模型：  
+*   **[`BERT-Large, Uncased (Whole Word Masking)`](https://storage.googleapis.com/bert_models/2019_05_30/wwm_uncased_L-24_H-1024_A-16.zip)**:
+    24-layer, 1024-hidden, 16-heads, 340M parameters
+
+*   **[`BERT-Large, Cased (Whole Word Masking)`](https://storage.googleapis.com/bert_models/2019_05_30/wwm_cased_L-24_H-1024_A-16.zip)**:
+    24-layer, 1024-hidden, 16-heads, 340M parameters
+实验比较：  
+Model                                    | SQUAD 1.1 F1/EM | Multi NLI Accuracy
+---------------------------------------- | :-------------: | :----------------:
+BERT-Large, Uncased (Original)           | 91.0/84.3       | 86.05
+BERT-Large, Uncased (Whole Word Masking) | 92.8/86.7       | 87.07
+BERT-Large, Cased (Original)             | 91.5/84.8       | 86.09
+BERT-Large, Cased (Whole Word Masking)   | 92.9/86.7       | 86.46
+效果确实有所提升。
